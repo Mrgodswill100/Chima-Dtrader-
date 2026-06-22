@@ -1,0 +1,2 @@
+# Chima-Dtrader-
+Chimaobi ai
