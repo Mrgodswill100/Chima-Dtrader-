@@ -1,9 +1,26 @@
 import logging
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import asyncio
 import aiohttp
 import math
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+    def log_message(self, format, *args):
+        pass
+
+def run_health_server():
+    server = HTTPServer(("0.0.0.0", 10000), HealthHandler)
+    server.serve_forever()
+
+threading.Thread(target=run_health_server, daemon=True).start()
+
 
 BOT_TOKEN = "8601508098:AAHg_K83mDmIjtInKLnGPI6gufhCmBhaUpc"
 TWELVEDATA_API_KEY = "189b40603c014143ae17eb33053ae348"
@@ -558,9 +575,4 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     print("Bot is running...")
-    app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
-
-
-if __name__ == "__main__":
-    main()
-                         
+    app.run_polling(drop_pending_updates=True, allowed_updates=Update.
