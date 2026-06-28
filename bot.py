@@ -1,11 +1,20 @@
 import logging
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import asyncio
 import aiohttp
 import math
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+
+BOT_TOKEN = "8601508098:AAHg_K83mDmIjtInKLnGPI6gufhCmBhaUpc"
+TWELVEDATA_API_KEY = "189b40603c014143ae17eb33053ae348"
+
+logging.basicConfig(level=logging.INFO)
+
+PAIRS = ["EUR/USD", "GBP/USD", "EUR/GBP", "AUD/USD", "USD/JPY", "GBP/JPY", "USD/CHF", "BTC/USDT"]
+DURATIONS = ["10s", "15s", "30s", "1min"]
+
 
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -15,20 +24,11 @@ class HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+
 def run_health_server():
     server = HTTPServer(("0.0.0.0", 10000), HealthHandler)
     server.serve_forever()
 
-threading.Thread(target=run_health_server, daemon=True).start()
-
-
-BOT_TOKEN = "8601508098:AAHg_K83mDmIjtInKLnGPI6gufhCmBhaUpc"
-TWELVEDATA_API_KEY = "189b40603c014143ae17eb33053ae348"
-
-logging.basicConfig(level=logging.INFO)
-
-PAIRS = ["EUR/USD", "GBP/USD", "EUR/GBP", "AUD/USD", "USD/JPY", "GBP/JPY", "USD/CHF", "BTC/USDT"]
-DURATIONS = ["10s", "15s", "30s", "1min"]
 
 def ema(closes, period):
     if len(closes) < period:
@@ -39,10 +39,12 @@ def ema(closes, period):
         val = c * k + val * (1 - k)
     return val
 
+
 def sma(closes, period):
     if len(closes) < period:
         return None
     return sum(closes[-period:]) / period
+
 
 def calculate_indicators(candles):
     closes = [c['close'] for c in candles]
@@ -52,24 +54,19 @@ def calculate_indicators(candles):
     last   = closes[-1]
     votes  = []
 
-    # 1. EMA 9
     e9 = ema(closes, 9)
     votes.append("BUY" if e9 and last > e9 else "SELL")
 
-    # 2. EMA 14
     e14 = ema(closes, 14)
     votes.append("BUY" if e14 and last > e14 else "SELL")
 
-    # 3. SMA 20
     s20 = sma(closes, 20)
     votes.append("BUY" if s20 and last > s20 else "SELL")
 
-    # 4. VWAP
     tp = [(highs[i]+lows[i]+closes[i])/3 for i in range(len(closes))]
     vwap = sum(tp[i]*vols[i] for i in range(len(closes))) / (sum(vols) or 1)
     votes.append("BUY" if last > vwap else "SELL")
 
-    # 5. Williams Alligator
     jaw   = sma(closes, 13)
     teeth = sma(closes, 8)
     lips  = sma(closes, 5)
@@ -83,7 +80,6 @@ def calculate_indicators(candles):
     else:
         votes.append("NEUTRAL")
 
-    # 6. Bollinger Bands
     if s20:
         std = math.sqrt(sum((c - s20)**2 for c in closes[-20:]) / 20)
         upper = s20 + 2*std
@@ -97,46 +93,37 @@ def calculate_indicators(candles):
     else:
         votes.append("NEUTRAL")
 
-    # 7. Ichimoku
     if len(closes) >= 26:
-        tenkan = (max(highs[-9:])  + min(lows[-9:]))  / 2
+        tenkan = (max(highs[-9:]) + min(lows[-9:])) / 2
         kijun  = (max(highs[-26:]) + min(lows[-26:])) / 2
         votes.append("BUY" if last > tenkan and last > kijun else "SELL")
     else:
         votes.append("NEUTRAL")
 
-    # 8. Parabolic SAR simplified
     votes.append("BUY" if closes[-1] > closes[-2] else "SELL")
 
-    # 9. Supertrend
     if len(candles) >= 14:
-        atr_val = sum(max(highs[i]-lows[i], abs(highs[i]-closes[i-1]), abs(lows[i]-closes[i-1]))
-                      for i in range(-14,0)) / 14
+        atr_val = sum(max(highs[i]-lows[i], abs(highs[i]-closes[i-1]), abs(lows[i]-closes[i-1])) for i in range(-14,0)) / 14
         mid = sma(closes, 14)
         if mid:
-            lower_st = mid - 1.5*atr_val
-            votes.append("BUY" if last > lower_st else "SELL")
+            votes.append("BUY" if last > mid - 1.5*atr_val else "SELL")
         else:
             votes.append("NEUTRAL")
     else:
         votes.append("NEUTRAL")
 
-    # 10. Hull MA
     if len(closes) >= 16:
         wma1 = ema(closes, 4)
         wma2 = ema(closes, 9)
-        if wma1 and wma2:
-            hull_val = 2*wma1 - wma2
-            wma1p = ema(closes[:-1], 4)
-            wma2p = ema(closes[:-1], 9)
-            prev_hull = (2*wma1p - wma2p) if (wma1p and wma2p) else hull_val
-            votes.append("BUY" if hull_val > prev_hull else "SELL")
+        wma1p = ema(closes[:-1], 4)
+        wma2p = ema(closes[:-1], 9)
+        if wma1 and wma2 and wma1p and wma2p:
+            votes.append("BUY" if (2*wma1-wma2) > (2*wma1p-wma2p) else "SELL")
         else:
             votes.append("NEUTRAL")
     else:
         votes.append("NEUTRAL")
 
-    # 11. Stochastic
     if len(closes) >= 14:
         low14  = min(lows[-14:])
         high14 = max(highs[-14:])
@@ -145,13 +132,12 @@ def calculate_indicators(candles):
         for i in range(len(closes)):
             h = max(highs[max(0,i-14):i+1])
             l = min(lows[max(0,i-14):i+1])
-            k_vals.append((closes[i]-l)/(h-l)*100 if h!=l else 50)
+            k_vals.append((closes[i]-l)/(h-l)*100 if h != l else 50)
         k_ema = ema(k_vals, 3)
         votes.append("BUY" if k_ema and k > k_ema else "SELL")
     else:
         votes.append("NEUTRAL")
 
-    # 12. RSI 14
     if len(closes) >= 15:
         gains  = [max(closes[i]-closes[i-1], 0) for i in range(1, len(closes))]
         losses = [max(closes[i-1]-closes[i], 0) for i in range(1, len(closes))]
@@ -170,7 +156,6 @@ def calculate_indicators(candles):
     else:
         votes.append("NEUTRAL")
 
-    # 13. MACD
     if len(closes) >= 26:
         ml = ema(closes, 12) - ema(closes, 26)
         sl = ema(closes[-9:], 9) if len(closes) >= 35 else ml
@@ -178,7 +163,6 @@ def calculate_indicators(candles):
     else:
         votes.append("NEUTRAL")
 
-    # 14. CCI
     if len(closes) >= 20 and s20:
         mean_dev = sum(abs(closes[-20:][i] - s20) for i in range(20)) / 20
         cci = (last - s20) / (0.015 * mean_dev) if mean_dev != 0 else 0
@@ -186,7 +170,6 @@ def calculate_indicators(candles):
     else:
         votes.append("NEUTRAL")
 
-    # 15. Williams %R
     if len(closes) >= 14:
         h14 = max(highs[-14:])
         l14 = min(lows[-14:])
@@ -195,20 +178,16 @@ def calculate_indicators(candles):
     else:
         votes.append("NEUTRAL")
 
-    # 16. Momentum
     if len(closes) >= 11:
         votes.append("BUY" if last - closes[-11] > 0 else "SELL")
     else:
         votes.append("NEUTRAL")
 
-    # 17. ROC
     if len(closes) >= 10:
-        roc = (last - closes[-10]) / closes[-10] * 100
-        votes.append("BUY" if roc > 0 else "SELL")
+        votes.append("BUY" if (last - closes[-10]) / closes[-10] * 100 > 0 else "SELL")
     else:
         votes.append("NEUTRAL")
 
-    # 18. Ultimate Oscillator
     if len(closes) >= 28:
         def bp_tr(i):
             bp = closes[i] - min(lows[i], closes[i-1])
@@ -223,17 +202,14 @@ def calculate_indicators(candles):
     else:
         votes.append("NEUTRAL")
 
-    # 19. Awesome Oscillator
     if len(closes) >= 34:
         median = [(highs[i]+lows[i])/2 for i in range(len(closes))]
         s5  = sma(median, 5)
         s34 = sma(median, 34)
-        ao = (s5 - s34) if (s5 and s34) else 0
-        votes.append("BUY" if ao > 0 else "SELL")
+        votes.append("BUY" if s5 and s34 and s5 > s34 else "SELL")
     else:
         votes.append("NEUTRAL")
 
-    # 20. DeMarker
     if len(closes) >= 14:
         dh = sum(max(highs[i]-highs[i-1], 0) for i in range(1, len(closes)))
         dl = sum(max(lows[i-1]-lows[i], 0) for i in range(1, len(closes)))
@@ -242,26 +218,20 @@ def calculate_indicators(candles):
     else:
         votes.append("NEUTRAL")
 
-    # 21. Bollinger Band Width trend
     if s20:
         votes.append("BUY" if last > s20 else "SELL")
     else:
         votes.append("NEUTRAL")
 
-    # 22. ATR neutral
     votes.append("NEUTRAL")
 
-    # 23. Keltner Channel
     if len(candles) >= 20:
-        atr14 = sum(max(highs[i]-lows[i], abs(highs[i]-closes[i-1]), abs(lows[i]-closes[i-1]))
-                    for i in range(-14,0))/14
+        atr14 = sum(max(highs[i]-lows[i], abs(highs[i]-closes[i-1]), abs(lows[i]-closes[i-1])) for i in range(-14,0))/14
         e20 = ema(closes, 20)
         if e20:
-            kc_upper = e20 + 1.5*atr14
-            kc_lower = e20 - 1.5*atr14
-            if last > kc_upper:
+            if last > e20 + 1.5*atr14:
                 votes.append("BUY")
-            elif last < kc_lower:
+            elif last < e20 - 1.5*atr14:
                 votes.append("SELL")
             else:
                 votes.append("NEUTRAL")
@@ -270,30 +240,22 @@ def calculate_indicators(candles):
     else:
         votes.append("NEUTRAL")
 
-    # 24. Donchian Channel
     if len(closes) >= 20:
-        dc_upper = max(highs[-20:])
-        dc_lower = min(lows[-20:])
-        mid_dc = (dc_upper+dc_lower)/2
+        mid_dc = (max(highs[-20:]) + min(lows[-20:])) / 2
         votes.append("BUY" if last > mid_dc else "SELL")
     else:
         votes.append("NEUTRAL")
 
-    # 25. Std Dev trend
     if s20:
         prev_s20 = sma(closes[:-1], 20)
         votes.append("BUY" if s20 > (prev_s20 or s20) else "SELL")
     else:
         votes.append("NEUTRAL")
 
-    # 26. OBV
-    obv = sum(vols[i] if closes[i]>closes[i-1] else -vols[i] if closes[i]<closes[i-1] else 0
-              for i in range(1, len(closes)))
-    prev_obv = sum(vols[i] if closes[i]>closes[i-1] else -vols[i] if closes[i]<closes[i-1] else 0
-                   for i in range(1, len(closes)-1))
+    obv = sum(vols[i] if closes[i]>closes[i-1] else -vols[i] if closes[i]<closes[i-1] else 0 for i in range(1, len(closes)))
+    prev_obv = sum(vols[i] if closes[i]>closes[i-1] else -vols[i] if closes[i]<closes[i-1] else 0 for i in range(1, len(closes)-1))
     votes.append("BUY" if obv > prev_obv else "SELL")
 
-    # 27. MFI
     if len(candles) >= 14:
         mf_pos = mf_neg = 0
         for i in range(-14, 0):
@@ -309,30 +271,25 @@ def calculate_indicators(candles):
     else:
         votes.append("NEUTRAL")
 
-    # 28. Chaikin Money Flow
     if len(candles) >= 20:
-        cmf_num = sum(((closes[i]-lows[i])-(highs[i]-closes[i]))/(highs[i]-lows[i]+0.0001)*vols[i]
-                      for i in range(-20,0))
+        cmf_num = sum(((closes[i]-lows[i])-(highs[i]-closes[i]))/(highs[i]-lows[i]+0.0001)*vols[i] for i in range(-20,0))
         cmf_den = sum(vols[-20:]) or 1
         votes.append("BUY" if cmf_num/cmf_den > 0 else "SELL")
     else:
         votes.append("NEUTRAL")
 
-    # 29. Volume Oscillator
     if len(vols) >= 10:
         s5v  = sma(vols, 5)
         s10v = sma(vols, 10)
-        votes.append("BUY" if (s5v and s10v and s5v > s10v) else "SELL")
+        votes.append("BUY" if s5v and s10v and s5v > s10v else "SELL")
     else:
         votes.append("NEUTRAL")
 
-    # 30. Force Index
     if len(closes) >= 2:
         votes.append("BUY" if (closes[-1]-closes[-2])*vols[-1] > 0 else "SELL")
     else:
         votes.append("NEUTRAL")
 
-    # 31. Engulfing
     if len(candles) >= 2:
         p = candles[-2]
         c = candles[-1]
@@ -345,12 +302,11 @@ def calculate_indicators(candles):
     else:
         votes.append("NEUTRAL")
 
-    # 32. Pin Bar
     if len(candles) >= 1:
         c = candles[-1]
         body = abs(c['close']-c['open'])
-        upper_wick = c['high'] - max(c['close'],c['open'])
-        lower_wick = min(c['close'],c['open']) - c['low']
+        upper_wick = c['high'] - max(c['close'], c['open'])
+        lower_wick = min(c['close'], c['open']) - c['low']
         if lower_wick > 2*body and lower_wick > upper_wick:
             votes.append("BUY")
         elif upper_wick > 2*body and upper_wick > lower_wick:
@@ -360,12 +316,10 @@ def calculate_indicators(candles):
     else:
         votes.append("NEUTRAL")
 
-    # 33. Doji
     votes.append("NEUTRAL")
 
-    # 34. Morning/Evening Star
     if len(candles) >= 3:
-        c1,c2,c3 = candles[-3],candles[-2],candles[-1]
+        c1, c2, c3 = candles[-3], candles[-2], candles[-1]
         body1 = abs(c1['close']-c1['open'])
         body2 = abs(c2['close']-c2['open'])
         if c1['close']<c1['open'] and body2 < body1*0.3 and c3['close']>c3['open']:
@@ -377,9 +331,8 @@ def calculate_indicators(candles):
     else:
         votes.append("NEUTRAL")
 
-    # 35. Three soldiers/crows
     if len(candles) >= 3:
-        c1,c2,c3 = candles[-3],candles[-2],candles[-1]
+        c1, c2, c3 = candles[-3], candles[-2], candles[-1]
         if all(c['close']>c['open'] for c in [c1,c2,c3]) and c3['close']>c2['close']>c1['close']:
             votes.append("BUY")
         elif all(c['close']<c['open'] for c in [c1,c2,c3]) and c3['close']<c2['close']<c1['close']:
@@ -399,8 +352,8 @@ def tally_votes(votes1, votes2):
     total = buy + sell
     if total == 0:
         return None, 0, 0, 0, "", 0
-    buy_pct  = buy/total*100
-    sell_pct = sell/total*100
+    buy_pct  = buy / total * 100
+    sell_pct = sell / total * 100
     if buy_pct >= sell_pct:
         direction = "BUY [UP]"
         pct = buy_pct
@@ -425,7 +378,7 @@ def tally_votes(votes1, votes2):
 async def fetch_candles(session, pair, interval):
     try:
         if pair == "BTC/USDT":
-            tf_map = {"1min":"1m", "2min":"2m"}
+            tf_map = {"1min": "1m", "2min": "2m"}
             url = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=" + tf_map[interval] + "&limit=50"
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as r:
                 data = await r.json()
@@ -507,7 +460,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif data == "analyze":
         pair     = ctx.user_data.get("pair", "EUR/USD")
         duration = ctx.user_data.get("duration", "1min")
-        await query.edit_message_text("Analyzing " + pair + " across 35 indicators on 1min + 2min...\nPlease wait.")
+        await query.edit_message_text("Analyzing " + pair + " on 35 indicators across 1min + 2min. Please wait...")
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -530,7 +483,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             if result[0] is None:
                 msg = (
                     "*Market is undecided*\n\n"
-                    "Pair: " + pair + " | Duration: " + duration + "\n"
+                    "Pair: " + pair + "\n"
                     "BUY votes: " + str(result[1]) + " | SELL votes: " + str(result[2]) + "\n\n"
                     "Wait for a clearer setup."
                 )
@@ -539,7 +492,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
             direction, buy, sell, accuracy, strength, pct = result
             total = buy + sell
-            div = "-" * 30
+            div = "------------------------------"
 
             msg = (
                 "*CHIMA DTRADER SIGNAL AI*\n" +
@@ -571,8 +524,14 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    threading.Thread(target=run_health_server, daemon=True).start()
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     print("Bot is running...")
-    app.run_polling(drop_pending_updates=True, allowed_updates=Update.
+    app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
+
+
+if __name__ == "__main__":
+    main()
+        
