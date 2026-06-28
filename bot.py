@@ -419,24 +419,52 @@ def tally_votes(votes1, votes2):
 # ── Data fetching ───────────────────────────────────────────────────────────
 
 async def fetch_candles(session, pair, interval):
-    if pair == "BTC/USDT":
-        tf_map = {"1min":"1m","2min":"2m"}
-        url = f"https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval={tf_map[interval]}&limit=50"
-        async with session.get(url) as r:
-            data = await r.json()
-        return [{"open":float(k[1]),"high":float(k[2]),"low":float(k[3]),"close":float(k[4]),"volume":float(k[5])} for k in data]
-    else:
-        symbol = pair.replace("/","")
-        url = (f"https://api.twelvedata.com/time_series?symbol={pair}"
-               f"&interval={interval}&outputsize=50&apikey={TWELVEDATA_API_KEY}")
-        async with session.get(url) as r:
-            data = await r.json()
-        if "values" not in data:
-            return None
-        candles = [{"open":float(v["open"]),"high":float(v["high"]),"low":float(v["low"]),
-                    "close":float(v["close"]),"volume":float(v.get("volume",0))}
-                   for v in reversed(data["values"])]
-        return candles
+    try:
+        if pair == "BTC/USDT":
+            tf_map = {"1min":"1m","2min":"2m"}
+            url = f"https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval={tf_map[interval]}&limit=50"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                data = await r.json()
+            if not isinstance(data, list) or len(data) == 0:
+                return None
+            candles = []
+            for k in data:
+                try:
+                    # Binance kline format: [openTime, open, high, low, close, volume, ...]
+                    # All price fields are strings, index 0 is timestamp (int) — skip it
+                    candles.append({
+                        "open":   float(str(k[1])),
+                        "high":   float(str(k[2])),
+                        "low":    float(str(k[3])),
+                        "close":  float(str(k[4])),
+                        "volume": float(str(k[5]))
+                    })
+                except (ValueError, IndexError, TypeError):
+                    continue
+            return candles if len(candles) >= 20 else None
+        else:
+            url = (f"https://api.twelvedata.com/time_series?symbol={pair}"
+                   f"&interval={interval}&outputsize=50&apikey={TWELVEDATA_API_KEY}&format=JSON")
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                data = await r.json()
+            if "values" not in data or not data["values"]:
+                return None
+            candles = []
+            for v in reversed(data["values"]):
+                try:
+                    candles.append({
+                        "open":   float(v["open"]),
+                        "high":   float(v["high"]),
+                        "low":    float(v["low"]),
+                        "close":  float(v["close"]),
+                        "volume": float(v.get("volume") or 0)
+                    })
+                except (ValueError, KeyError):
+                    continue
+            return candles if len(candles) >= 20 else None
+    except Exception as e:
+        logging.error(f"Fetch error {pair} {interval}: {e}")
+        return None
 
 # ── Bot handlers ────────────────────────────────────────────────────────────
 
@@ -526,32 +554,4 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 f"🎯 Accuracy: *{accuracy}%*\n"
                 f"💪 Strength: {strength}\n"
                 f"{'─'*28}\n"
-                f"🗳 Votes: BUY {buy} | SELL {sell} | Total {total}\n"
-                f"📊 Agreement: {pct:.1f}%\n"
-                f"{'─'*28}\n"
-                f"⚠️ _For educational purposes only_"
-            )
-            await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-
-        except Exception as e:
-            await query.edit_message_text(f"❌ Error: {str(e)}\nPlease try again.")
-
-    elif data == "restart":
-        keyboard = [[InlineKeyboardButton(p, callback_data=f"pair_{p}")] for p in PAIRS]
-        await query.edit_message_text(
-            "🤖 *Chima Dtrader Signal AI*\n\nSelect a currency pair:",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-# ── Main ────────────────────────────────────────────────────────────────────
-
-def main():
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    print("Bot is running...")
-    app.run_polling()
-
-if __name__ == "__main__":
-    main()
+                f"🗳 Votes: BUY {b
