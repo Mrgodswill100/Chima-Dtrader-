@@ -397,10 +397,10 @@ def tally_votes(votes1, votes2):
     buy_pct  = buy/total*100
     sell_pct = sell/total*100
     if buy_pct > sell_pct:
-        direction = "BUY ⬆"
+        direction = "BUY [UP]"
         pct = buy_pct
     else:
-        direction = "SELL ⬇"
+        direction = "SELL [DOWN]"
         pct = sell_pct
     if pct < 51:
         return None, buy, sell, pct
@@ -554,4 +554,4 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 f"🎯 Accuracy: *{accuracy}%*\n"
                 f"💪 Strength: {strength}\n"
                 f"{'─'*28}\n"
-                f"🗳 Votes: BUY {b
+                f"votes: B
