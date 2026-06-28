@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO)
 PAIRS = ["EUR/USD", "GBP/USD", "EUR/GBP", "AUD/USD", "USD/JPY", "GBP/JPY", "USD/CHF", "BTC/USDT"]
 DURATIONS = ["10s", "15s", "30s", "1min"]
 
-# ── Indicator calculations ──────────────────────────────────────────────────
+# -- Indicator calculations --------------------------------------------------
 
 def ema(closes, period):
     if len(closes) < period:
@@ -239,7 +239,7 @@ def calculate_indicators(candles):
     else:
         votes.append("NEUTRAL")
 
-    # 22. ATR (weight only — neutral vote)
+    # 22. ATR (weight only - neutral vote)
     votes.append("NEUTRAL")
 
     # 23. Keltner Channel
@@ -358,7 +358,7 @@ def calculate_indicators(candles):
     else:
         votes.append("NEUTRAL")
 
-    # 33. Doji — always neutral
+    # 33. Doji - always neutral
     votes.append("NEUTRAL")
 
     # 34. Morning/Evening Star
@@ -416,7 +416,7 @@ def tally_votes(votes1, votes2):
         accuracy, strength = 60, "⭐ Weak"
     return direction, buy, sell, accuracy, strength, pct
 
-# ── Data fetching ───────────────────────────────────────────────────────────
+# -- Data fetching -----------------------------------------------------------
 
 async def fetch_candles(session, pair, interval):
     try:
@@ -431,7 +431,7 @@ async def fetch_candles(session, pair, interval):
             for k in data:
                 try:
                     # Binance kline format: [openTime, open, high, low, close, volume, ...]
-                    # All price fields are strings, index 0 is timestamp (int) — skip it
+                    # All price fields are strings, index 0 is timestamp (int) - skip it
                     candles.append({
                         "open":   float(str(k[1])),
                         "high":   float(str(k[2])),
@@ -466,7 +466,7 @@ async def fetch_candles(session, pair, interval):
         logging.error(f"Fetch error {pair} {interval}: {e}")
         return None
 
-# ── Bot handlers ────────────────────────────────────────────────────────────
+# -- Bot handlers ------------------------------------------------------------
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(p, callback_data=f"pair_{p}")] for p in PAIRS]
@@ -526,7 +526,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                     [InlineKeyboardButton("🔙 Change Pair", callback_data="restart")]
                 ]
                 await query.edit_message_text(
-                    f"⚠️ *Market is undecided*\n\n"
+                    f"WARNING: *Market is undecided*\n\n"
                     f"Pair: {pair} | Duration: {duration}\n"
                     f"BUY votes: {result[1]} | SELL votes: {result[2]}\n\n"
                     f"Wait for a clearer setup.",
@@ -546,12 +546,12 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
             msg = (
                 f"{direction_emoji} *CHIMA DTRADER SIGNAL AI*\n"
-                f"{'─'*28}\n"
+                f"{'-'*28}\n"
                 f"📊 Pair: *{pair}*\n"
                 f"⏱ Duration: *{duration}*\n"
-                f"{'─'*28}\n"
+                f"{'-'*28}\n"
                 f"📈 Direction: *{direction}*\n"
                 f"🎯 Accuracy: *{accuracy}%*\n"
                 f"💪 Strength: {strength}\n"
-                f"{'─'*28}\n"
-                f"votes: B
+                f"{'-'*28}\n"
+                f"vo
