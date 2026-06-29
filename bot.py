@@ -7,7 +7,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-BOT_TOKEN = "8601508098:AAHg_K83mDmIjtInKLnGPI6gufhCmBhaUpc"
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
 TWELVEDATA_API_KEY = "189b40603c014143ae17eb33053ae348"
 
 logging.basicConfig(level=logging.INFO)
@@ -534,4 +534,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-        
+            
